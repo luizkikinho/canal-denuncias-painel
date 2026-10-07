@@ -2,7 +2,7 @@
 
 Painel administrativo do sistema de recebimento de denúncias anônimas via WhatsApp. É a interface da organização que recebe os relatos: aqui os atendentes visualizam, assumem, respondem e finalizam chamados, e os administradores gerenciam empresas, usuários, categorias, textos do bot e a conexão com o WhatsApp — tudo com anonimato do denunciante garantido (nenhum dado identificável é armazenado).
 
-Projeto desenvolvido como trabalho de conclusão de curso (TG 2). O backend da comunicação (`chamados_anonimos_backend`, Node.js) é um repositório irmão.
+Projeto desenvolvido como trabalho de conclusão de curso (TG 2). O backend da comunicação (`canal-denuncias-backend`, Node.js) é um repositório irmão.
 
 ## Funcionalidades
 
@@ -26,7 +26,7 @@ Projeto desenvolvido como trabalho de conclusão de curso (TG 2). O backend da c
 ## Arquitetura
 
 ```
-painel-chamados (este repositório)
+canal-denuncias-painel (este repositório)
         │  supabase-js (anon key + RLS)
         ▼
    Supabase ── tabelas: chamados, registro_chamados, empresas,
@@ -50,7 +50,7 @@ O navegador nunca fala diretamente com a Evolution API: provisionamento, QR e si
 
 - Node.js 20+
 - Um projeto Supabase (plano gratuito atende)
-- (Opcional) backend `chamados_anonimos_backend` rodando, para provisionamento real e simulador remoto
+- (Opcional) backend `canal-denuncias-backend` rodando, para provisionamento real e simulador remoto
 
 ## Configuração
 
