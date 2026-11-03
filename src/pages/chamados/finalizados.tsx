@@ -35,10 +35,32 @@ export default function Chamados() {
     const from = (currentPage - 1) * itemsPerPage
     const to = from + itemsPerPage - 1
 
-    const { data, error, count } = await supabase
+    const { data: authData } = await supabase.auth.getUser()
+
+    if (!authData.user) {
+      setLoading(false)
+      return
+    }
+
+    const { data: adminData } = await supabase
+      .from("administradores")
+      .select("empresa_id")
+      .eq("id", authData.user.id)
+      .maybeSingle()
+
+    const empresaId = adminData?.empresa_id
+
+    let query = supabase
       .from("chamados_painel")
       .select("*", { count: "exact" })
       .eq("status", "concluido")
+
+    // Super admin não possui empresa vinculada e enxerga todas as empresas.
+    if (empresaId) {
+      query = query.eq("empresa_id", empresaId)
+    }
+
+    const { data, error, count } = await query
       .range(from, to)
       .order("data", { ascending: false })
 
@@ -99,24 +121,6 @@ export default function Chamados() {
       window.removeEventListener("resize", handleResize)
     }
   }, [fetchChamados])
-
-  const handleAtender = async (id: string) => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return console.error("Usuário não autenticado")
-
-    const { error } = await supabase
-      .from("chamados")
-      .update({ agente_responsavel_id: user.id, status: "em_andamento" })
-      .eq("id", id)
-
-    if (error) {
-      console.error("Erro ao assumir chamado:", error)
-    } else {
-      fetchChamados()
-    }
-  }
 
   const renderPageNumbers = () => {
     const getVisiblePages = (current: number, total: number) => {
@@ -184,7 +188,7 @@ export default function Chamados() {
         </div>
       ) : chamados.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Nenhum chamado pendente no momento.
+          Nenhum chamado finalizado no momento.
         </p>
       ) : (
         <>
@@ -196,9 +200,7 @@ export default function Chamados() {
                 horasAberto={chamado.horasAberto}
                 texto={chamado.texto}
                 status={chamado.status}
-                isOwner={false}
-                onResponder={async () => {}}
-                onAtender={() => handleAtender(chamado.id)}
+                atribuido={true}
               />
             ))}
           </div>

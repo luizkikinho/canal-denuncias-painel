@@ -8,16 +8,20 @@ import {
   CardFooter,
 } from "@/components/ui/card"
 import { TicketIcon, CornerDownRight, Lock } from "lucide-react"
+import { normalizarStatusChamado, rotuloStatusChamado } from "@/lib/chamados"
 
 interface ChamadoCardProps {
   id: string
   horasAberto: number
   texto: string
-  status: string
-  isOwner: boolean
+  status?: string | null
+  /** O chamado está atribuído a algum agente. */
+  atribuido?: boolean
+  /** O chamado está atribuído ao usuário logado. */
+  isOwner?: boolean
   resposta?: string
   onAtender?: (id: string) => void
-  onResponder: (id: string) => void
+  onResponder?: (id: string) => void
 }
 
 export function ChamadoCard({
@@ -25,42 +29,36 @@ export function ChamadoCard({
   horasAberto,
   texto,
   status,
-  isOwner,
+  atribuido = false,
+  isOwner = false,
   resposta,
   onAtender,
   onResponder,
 }: ChamadoCardProps) {
-  let variant: "default" | "secondary" | "destructive" | "outline" = "secondary"
-  let corClasses = "bg-green-500/10 text-green-500 hover:bg-green-500/20"
-  let badgeTexto = "Aberto"
+  const statusNormalizado = normalizarStatusChamado(status, atribuido)
+  const concluido = statusNormalizado === "concluido"
+  const emAndamento = statusNormalizado === "em_andamento"
 
-  if (status === "aberto") {
-    variant = "outline"
-    corClasses = ""
-    badgeTexto = "Aberto"
-  } else if (status === "em_andamento") {
-    variant = "outline"
-    corClasses = "bg-yellow-500/8 text-orange-300 hover:bg-yellow-500/20"
-    badgeTexto = "A responder"
-  }
+  const variant: "default" | "secondary" | "destructive" | "outline" = "outline"
+  const corClasses = concluido
+    ? "bg-muted text-muted-foreground"
+    : emAndamento
+      ? "bg-yellow-500/8 text-orange-300 hover:bg-yellow-500/20"
+      : ""
+
+  const podeAtender = !concluido && !atribuido && Boolean(onAtender)
+  const podeResponder = !concluido && isOwner && Boolean(onResponder)
 
   const isConfidential = texto === "******"
 
   return (
     <Card className="flex flex-col transition-colors hover:bg-muted/50">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <Badge
-          variant={status === "concluido" ? "outline" : variant}
-          className={
-            status === "concluido"
-              ? "bg-muted text-muted-foreground"
-              : corClasses
-          }
-        >
-          {status === "concluido" ? "Concluído" : `${badgeTexto}`}
+        <Badge variant={variant} className={corClasses}>
+          {rotuloStatusChamado(status, atribuido)}
         </Badge>
 
-        {status !== "concluido" && (
+        {!concluido && (
           <span className="text-xs text-muted-foreground">
             {horasAberto}h atrás
           </span>
@@ -85,7 +83,7 @@ export function ChamadoCard({
           )}
         </CardTitle>
 
-        {status === "concluido" && resposta && (
+        {concluido && resposta && (
           <div className="mt-2 flex gap-2 rounded-sm bg-muted/70 p-2.5 text-xs text-muted-foreground">
             <CornerDownRight className="mt-0.5 size-3.5 shrink-0 text-primary" />
             <div className="flex flex-col gap-1">
@@ -103,7 +101,7 @@ export function ChamadoCard({
           <TicketIcon className="size-4" />#{id}
         </div>
 
-        {status === "aberto" && onAtender && (
+        {podeAtender && onAtender && (
           <Button
             size="sm"
             className="font-semibold"
@@ -113,7 +111,7 @@ export function ChamadoCard({
           </Button>
         )}
 
-        {status === "em_andamento" && isOwner && (
+        {podeResponder && onResponder && (
           <Button
             size="sm"
             variant="outline"

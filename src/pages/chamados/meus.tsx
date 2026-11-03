@@ -138,7 +138,8 @@ export default function Chamados() {
 
     if (abaAtiva === "aberto") {
       query = query
-        .neq("status", "concluido")
+        // Inclui status nulo (legado) e exclui apenas os concluídos.
+        .or("status.is.null,status.neq.concluido")
         .order("data", { ascending: true })
     } else {
       query = query
@@ -244,14 +245,26 @@ export default function Chamados() {
       return
     }
 
-    const { error: updateError } = await supabase
+    const { data: chamadosAtualizados, error: updateError } = await supabase
       .from("chamados")
       .update({ status: "concluido" })
       .eq("id", chamadoSelecionado.id)
+      .eq("agente_responsavel_id", authData.user.id)
+      .select("id")
 
     if (updateError) {
       console.error("Erro ao atualizar status do chamado:", updateError)
+      toast.error("Erro ao concluir o chamado")
       setIsSubmitting(false)
+      return
+    }
+
+    if ((chamadosAtualizados?.length ?? 0) === 0) {
+      toast.error(
+        "Não foi possível concluir o chamado. Ele pode ter sido transferido para outro agente."
+      )
+      setIsSubmitting(false)
+      fetchChamados()
       return
     }
 
@@ -356,6 +369,7 @@ export default function Chamados() {
                 horasAberto={chamado.horasAberto}
                 texto={chamado.texto}
                 status={chamado.status}
+                atribuido={true}
                 isOwner={chamado.isOwner}
                 resposta={chamado.resposta}
                 onResponder={() => handleAbrirDialog(chamado)}

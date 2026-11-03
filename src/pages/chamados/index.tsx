@@ -21,6 +21,8 @@ interface ChamadoFormatado {
   horasAberto: number
   texto: string
   status: string
+  atribuido: boolean
+  isOwner: boolean
 }
 
 export default function Chamados() {
@@ -30,14 +32,16 @@ export default function Chamados() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
 
-  const [itemsPerPage, setItemsPerPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(20)
   const totalPages = Math.ceil(totalCount / itemsPerPage)
 
   const fetchChamados = useCallback(async () => {
     setLoading(true)
 
     // Pega as informações do usuário atual
-    const { data : {user}} = await supabase.auth.getUser()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
     if (!user) {
       setLoading(false)
       return
@@ -56,19 +60,23 @@ export default function Chamados() {
       return
     }
 
-    const empresaId = adminData.empresa_id 
+    const empresaId = adminData.empresa_id
 
     const from = (currentPage - 1) * itemsPerPage
     const to = from + itemsPerPage - 1
 
-    const { data, error, count } = await supabase
-      .from("chamados_painel")
-      .select("*", { count: "exact" })
-    .eq("empresa_id", empresaId)
+    let query = supabase.from("chamados_painel").select("*", { count: "exact" })
+
+    // Super admin não possui empresa vinculada e enxerga todas as empresas.
+    if (empresaId) {
+      query = query.eq("empresa_id", empresaId)
+    }
+
+    const { data, error, count } = await query
       .range(from, to)
       .order("status", { ascending: true })
       .order("data", { ascending: true })
-      
+
     if (error) {
       toast.error("Houve um erro ao tentar buscar os chamados")
       console.error(error)
@@ -80,13 +88,16 @@ export default function Chamados() {
           const msAberto =
             new Date().getTime() - new Date(chamado.data).getTime()
           const horas = Math.floor(msAberto / (1000 * 60 * 60))
+          const agenteId = chamado.agente_responsavel_id as string | null
 
           return {
             id: chamado.id,
             protocol: chamado.protocol,
             texto: chamado.texto,
             horasAberto: horas > 0 ? horas : 0,
-            status: chamado.status || "pendente",
+            status: chamado.status || "aberto",
+            atribuido: Boolean(agenteId),
+            isOwner: agenteId === user.id,
           }
         }) || []
       setChamados(chamadosSLA)
@@ -138,6 +149,8 @@ export default function Chamados() {
       .from("chamados")
       .update({ agente_responsavel_id: user.id, status: "em_andamento" })
       .eq("id", id)
+      .is("agente_responsavel_id", null)
+      .or("status.is.null,status.neq.concluido")
       .select("id")
 
     if (error) {
@@ -216,7 +229,7 @@ export default function Chamados() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Todos os Chamados</h1>
         <p className="text-muted-foreground">
-          Listagem de tickets aguardando atendimento.
+          Listagem de todos os chamados visíveis para você.
         </p>
       </div>
 
@@ -238,7 +251,7 @@ export default function Chamados() {
         </div>
       ) : chamados.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Nenhum chamado pendente no momento.
+          Nenhum chamado encontrado.
         </p>
       ) : (
         <>
@@ -250,8 +263,9 @@ export default function Chamados() {
                 horasAberto={chamado.horasAberto}
                 texto={chamado.texto}
                 status={chamado.status}
-                isOwner={false}
-                onResponder={async () => {}}
+                atribuido={chamado.atribuido}
+                isOwner={chamado.isOwner}
+                onResponder={() => navigate("/chamados/meus")}
                 onAtender={() => handleAtender(chamado.id)}
               />
             ))}

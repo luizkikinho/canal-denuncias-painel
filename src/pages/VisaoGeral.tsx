@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { normalizarStatusChamado, rotuloStatusChamado } from "@/lib/chamados"
 import { Bar, BarChart, CartesianGrid, XAxis } from "recharts"
 import {
   type ChartConfig,
@@ -84,9 +85,10 @@ export default function VisaoGeral() {
       interface ChamadoRow {
         id: string
         protocol: string | null
-        status: string
+        status: string | null
         data: string
         categoria_id: string | null
+        agente_responsavel_id: string | null
       }
 
       if (todos) {
@@ -99,10 +101,16 @@ export default function VisaoGeral() {
         const categoriasGrafico: Record<string, number> = {}
 
         todos.forEach((c: ChamadoRow) => {
-          // Contagem por status
-          if (c.status === "pendente" || c.status === "aberto") counts.abertos++
-          else if (c.status === "em_andamento") counts.emAndamento++
-          else if (c.status === "concluido") counts.concluidos++
+          // Contagem por status usando a atribuição como fonte de verdade
+          // (registros legados podem ter status nulo ou "pendente").
+          const situacao = normalizarStatusChamado(
+            c.status,
+            Boolean(c.agente_responsavel_id)
+          )
+
+          if (situacao === "concluido") counts.concluidos++
+          else if (situacao === "em_andamento") counts.emAndamento++
+          else counts.abertos++
 
           // Traduzindo o categoria_id para o nome usando o mapa
           const catName = c.categoria_id
@@ -132,7 +140,10 @@ export default function VisaoGeral() {
           ultimos.map((u: ChamadoRow) => ({
             id: u.id,
             protocol: u.protocol || "",
-            status: u.status,
+            status: normalizarStatusChamado(
+              u.status,
+              Boolean(u.agente_responsavel_id)
+            ),
             data: u.data,
             categoria:
               categoriasDicionario.get(u.categoria_id || "") || "Sem categoria",
@@ -269,7 +280,7 @@ export default function VisaoGeral() {
                         chamado.status === "concluido" ? "secondary" : "default"
                       }
                     >
-                      {chamado.status}
+                      {rotuloStatusChamado(chamado.status)}
                     </Badge>
                   </div>
                   <span className="text-sm text-muted-foreground">
@@ -303,7 +314,7 @@ export default function VisaoGeral() {
                               : "default"
                           }
                         >
-                          {chamado.status}
+                          {rotuloStatusChamado(chamado.status)}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right whitespace-nowrap">

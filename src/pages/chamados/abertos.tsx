@@ -21,7 +21,6 @@ interface ChamadoFormatado {
   horasAberto: number
   texto: string
   status: string
-  isOwner: boolean
 }
 
 export default function Chamados() {
@@ -38,34 +37,44 @@ export default function Chamados() {
     setLoading(true)
     setChamados([])
 
-    const {data: {user}} = await supabase.auth.getUser()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
     if (!user) {
       setLoading(false)
       return
     }
 
-    const {data: adminData, error: adminError} = await supabase
+    const { data: adminData, error: adminError } = await supabase
       .from("administradores")
       .select("empresa_id")
       .eq("id", user.id)
       .single()
-    
-      if (adminError || !adminData) {
-        console.error("Erro ao buscar dados do administrador:", adminError)
-        setLoading(false)
-        return
-      }
-    
+
+    if (adminError || !adminData) {
+      console.error("Erro ao buscar dados do administrador:", adminError)
+      setLoading(false)
+      return
+    }
+
     const empresaId = adminData.empresa_id
 
     const from = (currentPage - 1) * itemsPerPage
     const to = from + itemsPerPage - 1
 
-    const { data, error, count } = await supabase
+    let query = supabase
       .from("chamados_painel")
       .select("*", { count: "exact" })
       .is("agente_responsavel_id", null)
-      .eq("empresa_id", empresaId)
+      // Inclui status nulo (legado) e exclui apenas os concluídos.
+      .or("status.is.null,status.neq.concluido")
+
+    // Super admin não possui empresa vinculada e enxerga todas as empresas.
+    if (empresaId) {
+      query = query.eq("empresa_id", empresaId)
+    }
+
+    const { data, error, count } = await query
       .range(from, to)
       .order("data", { ascending: true })
 
@@ -87,7 +96,6 @@ export default function Chamados() {
             texto: chamado.texto,
             horasAberto: horas > 0 ? horas : 0,
             status: chamado.status,
-            isOwner: false,
           }
         }) || []
 
@@ -139,6 +147,8 @@ export default function Chamados() {
       .from("chamados")
       .update({ agente_responsavel_id: user.id, status: "em_andamento" })
       .eq("id", id)
+      .is("agente_responsavel_id", null)
+      .or("status.is.null,status.neq.concluido")
       .select("id")
 
     if (error) {
@@ -207,9 +217,11 @@ export default function Chamados() {
   return (
     <div className="flex flex-1 flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Todos os Chamados</h1>
+        <h1 className="text-2xl font-bold tracking-tight">
+          Chamados em Aberto
+        </h1>
         <p className="text-muted-foreground">
-          Listagem de tickets aguardando atendimento.
+          Fila de tickets aguardando atendimento.
         </p>
       </div>
 
@@ -231,7 +243,7 @@ export default function Chamados() {
         </div>
       ) : chamados.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Nenhum chamado pendente no momento.
+          Nenhum chamado aguardando atendimento no momento.
         </p>
       ) : (
         <>
@@ -243,11 +255,8 @@ export default function Chamados() {
                 horasAberto={chamado.horasAberto}
                 texto={chamado.texto}
                 status={chamado.status}
-                isOwner={chamado.isOwner}
+                atribuido={false}
                 onAtender={() => handleAtender(chamado.id)}
-                onResponder={() =>
-                  console.log("Abrir dialog do chamado", chamado.id)
-                }
               />
             ))}
           </div>
