@@ -36,16 +36,39 @@ export default function Chamados() {
   const fetchChamados = useCallback(async () => {
     setLoading(true)
 
+    // Pega as informações do usuário atual
+    const { data : {user}} = await supabase.auth.getUser()
+    if (!user) {
+      setLoading(false)
+      return
+    }
+
+    // Pega informações da empresa do usuário atual
+    const { data: adminData, error: adminError } = await supabase
+      .from("administradores")
+      .select("empresa_id")
+      .eq("id", user.id)
+      .single()
+
+    if (adminError || !adminData) {
+      console.error("Erro ao buscar dados do administrador:", adminError)
+      setLoading(false)
+      return
+    }
+
+    const empresaId = adminData.empresa_id 
+
     const from = (currentPage - 1) * itemsPerPage
     const to = from + itemsPerPage - 1
 
     const { data, error, count } = await supabase
       .from("chamados_painel")
       .select("*", { count: "exact" })
+    .eq("empresa_id", empresaId)
       .range(from, to)
       .order("status", { ascending: true })
       .order("data", { ascending: true })
-
+      
     if (error) {
       toast.error("Houve um erro ao tentar buscar os chamados")
       console.error(error)

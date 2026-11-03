@@ -38,6 +38,26 @@ export default function Chamados() {
     setLoading(true)
     setChamados([])
 
+    const {data: {user}} = await supabase.auth.getUser()
+    if (!user) {
+      setLoading(false)
+      return
+    }
+
+    const {data: adminData, error: adminError} = await supabase
+      .from("administradores")
+      .select("empresa_id")
+      .eq("id", user.id)
+      .single()
+    
+      if (adminError || !adminData) {
+        console.error("Erro ao buscar dados do administrador:", adminError)
+        setLoading(false)
+        return
+      }
+    
+    const empresaId = adminData.empresa_id
+
     const from = (currentPage - 1) * itemsPerPage
     const to = from + itemsPerPage - 1
 
@@ -45,6 +65,7 @@ export default function Chamados() {
       .from("chamados_painel")
       .select("*", { count: "exact" })
       .is("agente_responsavel_id", null)
+      .eq("empresa_id", empresaId)
       .range(from, to)
       .order("data", { ascending: true })
 

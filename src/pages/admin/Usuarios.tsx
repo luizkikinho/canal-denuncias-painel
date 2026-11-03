@@ -60,9 +60,30 @@ export default function Usuarios() {
   }, [])
 
   const fetchUsuarios = async () => {
+    const {data: {user}} = await supabase.auth.getUser()
+    if (!user) {
+      setLoading(false)
+      return
+    }
+
+    const {data: adminData, error: adminError} = await supabase
+      .from("administradores")
+      .select("empresa_id")
+      .eq("id", user.id)
+      .single()
+
+    if (adminError || !adminData) {
+        console.error("Erro ao buscar dados do administrador:", adminError)
+        setLoading(false)
+        return
+    }
+
+    const empresaId = adminData.empresa_id
+
     const { data, error } = await supabase
       .from("administradores")
       .select("id, nome, cargo")
+      .eq("empresa_id", empresaId)
       .order("nome")
 
     if (data) setUsuarios(data)
