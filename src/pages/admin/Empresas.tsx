@@ -45,8 +45,14 @@ import {
 } from "@/components/ui/table"
 import { supabase } from "@/lib/supabase"
 import {
+  ehInstanciaMock,
+  qrParaSrc,
+  rotuloWhatsapp,
+} from "@/lib/whatsapp"
+import {
   Building2,
   Check,
+  CheckCircle2,
   Copy,
   Loader2,
   RotateCcw,
@@ -55,6 +61,15 @@ import {
 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
+
+type RespostaWhatsapp = {
+  instanceName?: string | null
+  qrBase64?: string | null
+  mock?: boolean
+  fallback?: boolean
+  whatsapp_status?: string | null
+  persisted?: boolean
+}
 
 export default function Empresas() {
   // Gate de UX (segurança de verdade continua nas EFs)
@@ -67,6 +82,9 @@ export default function Empresas() {
   const [qrDialogOpen, setQrDialogOpen] = useState(false)
   const [qrBase64, setQrBase64] = useState("")
   const [instanceName, setInstanceName] = useState("")
+  const [qrMock, setQrMock] = useState(false)
+  const [qrFallback, setQrFallback] = useState(false)
+  const [qrStatus, setQrStatus] = useState<string | null>(null)
 
   // Criar master
   const [nomeMaster, setNomeMaster] = useState("")
@@ -117,6 +135,20 @@ export default function Empresas() {
     if (cargo === "super_admin") fetchEmpresas()
   }, [cargo])
 
+  const abrirDialogQr = (
+    data: RespostaWhatsapp,
+    instanceFallback = ""
+  ) => {
+    const nomeInstancia = data.instanceName ?? instanceFallback ?? ""
+
+    setQrBase64(data.qrBase64 ?? "")
+    setInstanceName(nomeInstancia)
+    setQrMock(Boolean(data.mock) || ehInstanciaMock(nomeInstancia))
+    setQrFallback(Boolean(data.fallback))
+    setQrStatus(data.whatsapp_status ?? null)
+    setQrDialogOpen(true)
+  }
+
   const handleCreateEmpresa = async (e: React.FormEvent) => {
     e.preventDefault()
     setCreatingEmpresa(true)
@@ -128,11 +160,24 @@ export default function Empresas() {
         }
       )
       if (error) throw new Error(error.message || "Erro ao criar empresa.")
-      setQrBase64(data.qrBase64 ?? "")
-      setInstanceName(data.instanceName ?? "")
-      setQrDialogOpen(true)
+      const resposta: RespostaWhatsapp = data ?? {}
+      abrirDialogQr(resposta)
       setNomeEmpresa("")
       fetchEmpresas()
+
+      if (resposta.persisted === false) {
+        toast.warning(
+          "Empresa criada, mas o vínculo da instância não foi salvo. Verifique o banco."
+        )
+      } else if (resposta.fallback) {
+        toast.warning(
+          "Backend indisponível: empresa criada em modo local (mock)."
+        )
+      } else if (resposta.mock) {
+        toast.info("Empresa criada em modo local (mock).")
+      } else {
+        toast.success("Empresa criada com sucesso.")
+      }
     } catch (error: any) {
       toast.error(error.message)
     } finally {
@@ -208,9 +253,22 @@ export default function Empresas() {
         }
       )
       if (error) throw new Error(error.message)
-      setQrBase64(data.qrBase64 ?? "")
-      setInstanceName(emp.instance_name ?? "")
-      setQrDialogOpen(true)
+
+      const resposta: RespostaWhatsapp = data ?? {}
+      abrirDialogQr(resposta, emp.instance_name ?? "")
+      fetchEmpresas()
+
+      if (resposta.persisted === false) {
+        toast.warning(
+          "Conexão em modo local, mas o vínculo não foi salvo no banco."
+        )
+      } else if (resposta.fallback) {
+        toast.warning(
+          "Evolution indisponível: conexão aplicada em modo local (mock)."
+        )
+      } else if (resposta.mock) {
+        toast.info("Conexão em modo local (mock).")
+      }
     } catch (error: any) {
       toast.error(error.message)
     }
@@ -272,9 +330,7 @@ export default function Empresas() {
     return <div className="p-8 text-muted-foreground">Acesso restrito.</div>
   }
 
-  const qrSrc = qrBase64.startsWith("data:")
-    ? qrBase64
-    : `data:image/png;base64,${qrBase64}`
+  const qrSrc = qrParaSrc(qrBase64)
 
   return (
     <div className="space-y-6 p-4 sm:p-6 md:p-8">
@@ -296,7 +352,8 @@ export default function Empresas() {
               <CardTitle>Nova Empresa</CardTitle>
             </div>
             <CardDescription>
-              Cria a empresa e provisiona a instância do WhatsApp na hora.
+              Cria a empresa e provisiona a instância do WhatsApp; se o backend
+              estiver indisponível, usa o modo local (mock).
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -405,19 +462,23 @@ export default function Empresas() {
                 </Badge>
               </div>
 
-              <div className="font-mono text-xs text-muted-foreground">
-                {emp.instance_name ?? "sem instância"}
+              <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                <span className="truncate">
+                  {emp.instance_name ?? "sem instância"}
+                </span>
+                {ehInstanciaMock(emp.instance_name) && (
+                  <Badge variant="outline">mock</Badge>
+                )}
               </div>
 
               <div className="flex items-center justify-between gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="capitalize"
                   disabled={emp.status === false}
                   onClick={() => handleConnectWhats(emp)}
                 >
-                  {emp.whatsapp_status ?? "—"}
+                  {rotuloWhatsapp(emp.whatsapp_status)}
                 </Button>
                 {renderAcoes(emp)}
               </div>
@@ -453,16 +514,23 @@ export default function Empresas() {
                   <TableRow key={emp.id}>
                     <TableCell className="font-medium">{emp.name}</TableCell>
                     <TableCell className="font-mono text-xs">
-                      {emp.instance_name ?? "—"}
+                      <div className="flex items-center gap-2">
+                        <span className="truncate">
+                          {emp.instance_name ?? "—"}
+                        </span>
+                        {ehInstanciaMock(emp.instance_name) && (
+                          <Badge variant="outline">mock</Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Button
                         variant="ghost"
-                        className="text-muted-foreground capitalize"
+                        className="text-muted-foreground"
                         disabled={emp.status === false}
                         onClick={() => handleConnectWhats(emp)}
                       >
-                        {emp.whatsapp_status ?? "—"}
+                        {rotuloWhatsapp(emp.whatsapp_status)}
                       </Button>
                     </TableCell>
                     <TableCell>
@@ -495,11 +563,34 @@ export default function Empresas() {
       <Dialog open={qrDialogOpen} onOpenChange={setQrDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Conectar WhatsApp — {instanceName}</DialogTitle>
+            <DialogTitle>
+              {qrStatus === "connected" && !qrBase64
+                ? "WhatsApp conectado"
+                : "Conectar WhatsApp"}
+              {instanceName ? ` — ${instanceName}` : ""}
+            </DialogTitle>
             <DialogDescription>
-              Escaneie com o WhatsApp da empresa para vincular a instância.
+              {qrStatus === "connected" && !qrBase64
+                ? "A instância já está conectada. Nenhuma ação é necessária."
+                : qrMock
+                  ? "Modo local: o QR é simulado e a conexão é aplicada instantaneamente."
+                  : "Escaneie com o WhatsApp da empresa para vincular a instância."}
             </DialogDescription>
           </DialogHeader>
+
+          {qrMock && (
+            <div className="rounded-md border border-dashed p-3 text-sm">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline">mock</Badge>
+                <span className="text-muted-foreground">
+                  {qrFallback
+                    ? "Evolution indisponível — fallback local aplicado."
+                    : "Modo local ativo."}
+                </span>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-center p-4">
             {qrBase64 ? (
               <img
@@ -507,9 +598,14 @@ export default function Empresas() {
                 alt="QR Code da instância"
                 className="h-52 w-52 rounded-lg border sm:h-64 sm:w-64"
               />
+            ) : qrStatus === "connected" ? (
+              <div className="flex flex-col items-center gap-2 text-center text-sm text-muted-foreground">
+                <CheckCircle2 className="h-10 w-10 text-emerald-600" />
+                <p>Instância conectada. Nada para escanear.</p>
+              </div>
             ) : (
               <p className="text-sm text-muted-foreground">
-                QR não disponível.
+                QR não disponível. Tente conectar novamente.
               </p>
             )}
           </div>

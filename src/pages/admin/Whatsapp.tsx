@@ -1,7 +1,21 @@
 import { useState, useEffect } from "react"
 import { supabase } from "@/lib/supabase"
+import {
+  ehInstanciaMock,
+  qrParaSrc,
+  rotuloWhatsapp,
+} from "@/lib/whatsapp"
 import { toast } from "sonner"
-import { QrCode, Loader2, Pencil, Check, X, Power, Plus } from "lucide-react"
+import {
+  QrCode,
+  Loader2,
+  Pencil,
+  Check,
+  CheckCircle2,
+  X,
+  Power,
+  Plus,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -29,6 +43,14 @@ import {
 } from "@/components/ui/select"
 import MensagensBot from "@/pages/admin/MensagensBot"
 
+type EmpresaConexao = {
+  id: string
+  name: string
+  status?: boolean | null
+  instance_name?: string | null
+  whatsapp_status?: string | null
+}
+
 export default function WhatsappBot() {
   // ===== identidade =====
   const [checking, setChecking] = useState(true)
@@ -41,11 +63,15 @@ export default function WhatsappBot() {
     cargo === "super_admin" ? empresaSelecionada : minhaEmpresaId
 
   // ===== empresa (conexão) =====
-  const [empresa, setEmpresa] = useState<any>(null)
+  const [empresa, setEmpresa] = useState<EmpresaConexao | null>(null)
 
   // ===== QR =====
   const [qrOpen, setQrOpen] = useState(false)
   const [qrBase64, setQrBase64] = useState("")
+  const [qrInstanceName, setQrInstanceName] = useState("")
+  const [qrMock, setQrMock] = useState(false)
+  const [qrFallback, setQrFallback] = useState(false)
+  const [qrStatus, setQrStatus] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
 
   // ===== categorias =====
@@ -88,7 +114,7 @@ export default function WhatsappBot() {
     if (!empresaId) return setEmpresa(null)
     const { data } = await supabase
       .from("empresas")
-      .select("id, name, instance_name, whatsapp_status")
+      .select("id, name, status, instance_name, whatsapp_status")
       .eq("id", empresaId)
       .single()
     setEmpresa(data)
@@ -124,8 +150,43 @@ export default function WhatsappBot() {
         }
       )
       if (error) throw new Error(error.message)
-      setQrBase64(data.qrBase64 ?? "")
+
+      const resposta = data ?? {}
+      const nomeInstancia =
+        resposta.instanceName ?? empresa?.instance_name ?? ""
+      const statusRecebido = resposta.whatsapp_status ?? null
+      const mock = Boolean(resposta.mock) || ehInstanciaMock(nomeInstancia)
+
+      setQrBase64(resposta.qrBase64 ?? "")
+      setQrInstanceName(nomeInstancia)
+      setQrMock(mock)
+      setQrFallback(Boolean(resposta.fallback))
+      setQrStatus(statusRecebido)
       setQrOpen(true)
+
+      // Reflete a resposta imediatamente, sem esperar o próximo fetch.
+      setEmpresa((atual) =>
+        atual
+          ? {
+              ...atual,
+              instance_name: nomeInstancia || atual.instance_name,
+              whatsapp_status: statusRecebido ?? atual.whatsapp_status,
+            }
+          : atual
+      )
+      fetchEmpresa()
+
+      if (resposta.persisted === false) {
+        toast.warning(
+          "Conexão em modo local, mas o vínculo não foi salvo no banco."
+        )
+      } else if (resposta.fallback) {
+        toast.warning(
+          "Evolution indisponível: conexão aplicada em modo local (mock)."
+        )
+      } else if (mock) {
+        toast.info("Conexão em modo local (mock).")
+      }
     } catch (e: any) {
       toast.error(e.message)
     } finally {
@@ -196,9 +257,7 @@ export default function WhatsappBot() {
     )
   }
 
-  const qrSrc = qrBase64?.startsWith("data:")
-    ? qrBase64
-    : `data:image/png;base64,${qrBase64}`
+  const qrSrc = qrParaSrc(qrBase64)
 
   return (
     <div className="space-y-6 p-4 sm:p-6 md:p-8">
@@ -243,11 +302,16 @@ export default function WhatsappBot() {
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between rounded-md border p-3">
               <div className="space-y-1">
-                <div className="text-sm capitalize">
-                  {empresa?.whatsapp_status ?? "—"}
+                <div className="text-sm">
+                  {rotuloWhatsapp(empresa?.whatsapp_status)}
                 </div>
-                <div className="font-mono text-xs text-muted-foreground">
-                  {empresa?.instance_name ?? "sem instância"}
+                <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                  <span className="truncate">
+                    {empresa?.instance_name ?? "sem instância"}
+                  </span>
+                  {ehInstanciaMock(empresa?.instance_name) && (
+                    <Badge variant="outline">mock</Badge>
+                  )}
                 </div>
               </div>
               <Badge
@@ -257,9 +321,7 @@ export default function WhatsappBot() {
                     : "secondary"
                 }
               >
-                {empresa?.whatsapp_status === "connected"
-                  ? "Conectado"
-                  : "Desconectado"}
+                {rotuloWhatsapp(empresa?.whatsapp_status)}
               </Badge>
             </div>
             <Button
@@ -393,12 +455,33 @@ export default function WhatsappBot() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              Conectar WhatsApp — {empresa?.instance_name}
+              {qrStatus === "connected" && !qrBase64
+                ? "WhatsApp conectado"
+                : "Conectar WhatsApp"}
+              {qrInstanceName ? ` — ${qrInstanceName}` : ""}
             </DialogTitle>
             <DialogDescription>
-              Escaneie com o WhatsApp da empresa para vincular a instância.
+              {qrStatus === "connected" && !qrBase64
+                ? "A instância já está conectada. Nenhuma ação é necessária."
+                : qrMock
+                  ? "Modo local: o QR é simulado e a conexão é aplicada instantaneamente."
+                  : "Escaneie com o WhatsApp da empresa para vincular a instância."}
             </DialogDescription>
           </DialogHeader>
+
+          {qrMock && (
+            <div className="rounded-md border border-dashed p-3 text-sm">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline">mock</Badge>
+                <span className="text-muted-foreground">
+                  {qrFallback
+                    ? "Evolution indisponível — fallback local aplicado."
+                    : "Modo local ativo."}
+                </span>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-center p-4">
             {qrBase64 ? (
               <img
@@ -406,9 +489,14 @@ export default function WhatsappBot() {
                 alt="QR Code da instância"
                 className="h-52 w-52 rounded-lg border sm:h-64 sm:w-64"
               />
+            ) : qrStatus === "connected" ? (
+              <div className="flex flex-col items-center gap-2 text-center text-sm text-muted-foreground">
+                <CheckCircle2 className="h-10 w-10 text-emerald-600" />
+                <p>Instância conectada. Nada para escanear.</p>
+              </div>
             ) : (
               <p className="text-sm text-muted-foreground">
-                QR não disponível.
+                QR não disponível. Tente conectar novamente.
               </p>
             )}
           </div>
